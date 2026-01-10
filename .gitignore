@@ -1,0 +1,13 @@
+# Maven build folder
+target/
+
+# IDE settings (IntelliJ / Eclipse / VS Code)
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# Compiled classes
+*.class
