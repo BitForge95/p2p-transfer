@@ -46,6 +46,28 @@ public class BencodeParser {
     }
 
     private byte[] decodeString() {
-        throw new UnsupportedOperationException("Strings not supported yet!");
+        int start = index;
+        while (data[index] != ':') {
+            index++;
+            if (index >= data.length) {
+                throw new RuntimeException("Invalid String: ends without ':'");
+            }
+        }
+
+        String lengthStr = new String(data, start, index - start);
+        int length = Integer.parseInt(lengthStr);
+
+        index++;
+
+        if (index + length > data.length) {
+            throw new RuntimeException("Invalid String: length exceeds data size");
+        }
+
+        byte[] strBytes = new byte[length];
+        System.arraycopy(data, index, strBytes, 0, length);
+
+        index += length;
+
+        return strBytes;
     }
 }

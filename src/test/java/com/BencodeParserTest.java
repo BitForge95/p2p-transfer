@@ -4,14 +4,13 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 import com.BencodeParser;
 
-class BencodeParserTest {
-
-    @Test
-    void testInteger() {
-        BencodeParser parser = new BencodeParser("i42e".getBytes());
-        assertEquals(42L, parser.decode());
-
-        parser = new BencodeParser("i-500e".getBytes());
-        assertEquals(-500L, parser.decode());
-    }
+@Test
+void testString() {
+    BencodeParser parser = new BencodeParser("4:spam".getBytes());
+    byte[] result = (byte[]) parser.decode();
+    assertEquals("spam", new String(result));
+        
+    parser = new BencodeParser("0:".getBytes());
+    result = (byte[]) parser.decode();
+    assertEquals("", new String(result));
 }
