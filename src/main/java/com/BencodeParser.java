@@ -1,5 +1,8 @@
 package com;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class BencodeParser {
     // Placeholder for now
 
@@ -23,6 +26,8 @@ public class BencodeParser {
             return decodeString(); 
         } else if (c == 'i') {
             return decodeInteger();
+        } else if (c == 'l') {
+            return decodeList();
         }
 
         throw new RuntimeException("Invalid Bencode format at index " + index);
@@ -69,5 +74,20 @@ public class BencodeParser {
         index += length;
 
         return strBytes;
+    }
+
+    private List<Object> decodeList() {
+        index++; //I skipped the first letter 'l'
+
+        List<Object> list = new ArrayList<>();
+
+        while(data[index] == 'e') {
+            list.add(decode()); //REcurrsivly called decode function to decode either Intergers or Strings for now
+        }
+
+        index++; // Skipping the 'e' also
+
+        return list;
+
     }
 }
