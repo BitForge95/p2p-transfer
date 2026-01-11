@@ -2,6 +2,9 @@ package com;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.TreeMap;
 
 public class BencodeParser {
     // Placeholder for now
@@ -28,6 +31,8 @@ public class BencodeParser {
             return decodeInteger();
         } else if (c == 'l') {
             return decodeList();
+        } else if (c == 'd') {
+            return decodeDictionary();
         }
 
         throw new RuntimeException("Invalid Bencode format at index " + index);
@@ -88,6 +93,28 @@ public class BencodeParser {
         index++; // Skipping the 'e' also
 
         return list;
+
+    }
+
+    private Map<String, Object> decodeDictionary() {
+        //The dictionary in bencoding is in the format d<key><value><key><value>e
+        //Here our task is to store them and use for further tracking
+        index++; //Skipping the letter 'd'
+
+        Map<String, Object> map = new TreeMap<>(); //Using treemap() cause it sorts the keys
+        //Bencode dictionaries are usually lexicographically sorted
+
+        while(data[index] != 'e') {
+            String key = new String(decodeString());
+
+            Object value = decode();
+
+            map.put(key,value);
+        }
+
+        index++; 
+
+        return map;
 
     }
 }

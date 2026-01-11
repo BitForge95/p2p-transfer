@@ -4,18 +4,17 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.List;
+import java.util.Map;
 
 import com.BencodeParser;
 
 public class BencodeParserTest {
     @Test
-    void testList() {
-        // l4:spami42ee -> ["spam", 42]
-        BencodeParser parser = new BencodeParser("l4:spami42ee".getBytes());
-        List<Object> list = (List<Object>) parser.decode();
+    void testDictionary() {
+        // d3:bar4:spame -> {"bar": "spam"}
+        BencodeParser parser = new BencodeParser("d3:bar4:spame".getBytes());
+        Map<String, Object> map = (Map<String, Object>) parser.decode();
         
-        assertEquals(2, list.size());
-        assertEquals("spam", new String((byte[]) list.get(0)));
-        assertEquals(42L, list.get(1));
+        assertEquals("spam", new String((byte[]) map.get("bar")));
     }
 }
