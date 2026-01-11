@@ -8,6 +8,7 @@ target/
 .settings/
 .classpath
 .project
+ubuntu.torrent
 
 # Compiled classes
 *.class

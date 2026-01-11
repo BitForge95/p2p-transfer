@@ -82,18 +82,16 @@ public class BencodeParser {
     }
 
     private List<Object> decodeList() {
-        index++; //I skipped the first letter 'l'
+        index++; // skip 'l'
 
         List<Object> list = new ArrayList<>();
 
-        while(data[index] == 'e') {
+        while (data[index] != 'e') {
             list.add(decode()); //REcurrsivly called decode function to decode either Intergers or Strings for now
         }
 
-        index++; // Skipping the 'e' also
-
+        index++; // skip 'e'
         return list;
-
     }
 
     private Map<String, Object> decodeDictionary() {
