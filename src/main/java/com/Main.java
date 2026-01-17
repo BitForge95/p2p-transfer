@@ -11,13 +11,17 @@ public class Main {
 
     public static void main(String[] args) {
 
-    //Generated from AI just to check whether the bencode parser is able to read the .torrent file or not
+    // Generated from AI just to check whether the bencode parser is able to read the .torrent file or not
         try {
             System.out.println("--- JTorrent: BitTorrent Client v1.0 ---");
 
             // 1. Read the .torrent file
             // Make sure "ubuntu.torrent" is in your project root folder (next to pom.xml)
             String filePath = "ubuntu.torrent"; 
+            if (!Files.exists(Paths.get(filePath))) {
+                System.err.println("Error: File not found: " + filePath);
+                return;
+            }
             byte[] fileBytes = Files.readAllBytes(Paths.get(filePath));
             System.out.println("Loaded file: " + filePath);
 
@@ -27,17 +31,19 @@ public class Main {
 
             System.out.println("\n--- Metadata Parsed ---");
             
-            // 3. Print Tracker URL (Announce)
+            // 3. Print Tracker URL (Announce) and store it for Day 4
+            String announceUrl = null;
             if (torrentData.containsKey("announce")) {
                 // Some torrents use byte[] for strings, so we cast to byte[] then new String()
                 Object announceObj = torrentData.get("announce");
-                String announceUrl = (announceObj instanceof byte[]) ? 
+                announceUrl = (announceObj instanceof byte[]) ? 
                     new String((byte[]) announceObj, StandardCharsets.UTF_8) : (String) announceObj;
                     
                 System.out.println("Tracker URL: " + announceUrl);
             }
 
             // 4. Print File Info
+            byte[] infoHash = null; // Store for Day 4 usage
             if (torrentData.containsKey("info")) {
                 Map<String, Object> info = (Map<String, Object>) torrentData.get("info");
                 
@@ -54,15 +60,33 @@ public class Main {
 
                 // 5. Calculate Info Hash
                 System.out.println("\n--- Cryptography ---");
-                byte[] infoHash = calculateInfoHash(torrentData);
+                infoHash = calculateInfoHash(torrentData);
                 String hexHash = bytesToHex(infoHash);
                 System.out.println("Info Hash:   " + hexHash);
-                System.out.println("(Check this against the website where you downloaded the torrent!)");
+                // Sucessfully calculated INfo Hash , verified from ubuntu website 
             }
 
             // 6. Generate Peer ID
             byte[] myPeerId = generatePeerId();
             System.out.println("My Peer ID:  " + new String(myPeerId, StandardCharsets.UTF_8));
+
+            // Now we use the data we parsed to ask the Tracker for peers
+            
+            if (announceUrl != null && infoHash != null) {
+                if (announceUrl.startsWith("http")) {
+                    System.out.println("\n--- Connecting to Tracker ---");
+                    
+                    TrackerClient trackerClient = new TrackerClient();
+                    // Port 6881 is standard for BitTorrent
+                    byte[] response = trackerClient.requestPeers(announceUrl, infoHash, myPeerId, 6881);
+                    
+                    System.out.println("SUCCESS: Tracker responded with " + response.length + " bytes of data.");
+                    System.out.println("This binary data contains the IP addresses of peers.");
+                } else {
+                    System.err.println("\nWARNING: This torrent uses a UDP tracker (" + announceUrl + ").");
+                    System.err.println("This client currently only supports HTTP trackers.");
+                }
+            }
 
         } catch (Exception e) {
             System.err.println("CRITICAL ERROR: " + e.getMessage());
@@ -85,9 +109,6 @@ public class Main {
         MessageDigest digest = MessageDigest.getInstance("SHA-1");
         return digest.digest(infoBytes);
     }
-
-    //Sucessfully calculated INfo Hash , verified from ubuntu website 
-
       
     // Generates a random 20-byte Peer ID.
     // Format: -JT1000- followed by 12 random numbers.
@@ -107,7 +128,6 @@ public class Main {
         return peerId;
     }
 
-      
     // Helper to convert raw bytes to a Hex String (e.g., [10, 15] -> "0a0f")
      
     private static String bytesToHex(byte[] bytes) {
