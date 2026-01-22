@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
@@ -80,7 +81,13 @@ public class Main {
                     // Port 6881 is standard for BitTorrent
                     byte[] response = trackerClient.requestPeers(announceUrl, infoHash, myPeerId, 6881);
                     
-                    System.out.println("SUCCESS: Tracker responded with " + response.length + " bytes of data.");
+                    System.out.println("Tracker Response received. Parsing...");
+                    List<Peer> peers = trackerClient.parseResponse(response);
+                    
+                    System.out.println("Found " + peers.size() + " peers:");
+                    for (Peer p : peers) {
+                        System.out.println(" - " + p);
+                    }
                     System.out.println("This binary data contains the IP addresses of peers.");
                 } else {
                     System.err.println("\nWARNING: This torrent uses a UDP tracker (" + announceUrl + ").");
