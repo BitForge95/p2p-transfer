@@ -1,9 +1,14 @@
 package com;
 
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -18,7 +23,7 @@ public class Main {
 
             // 1. Read the .torrent file
             // Make sure "ubuntu.torrent" is in your project root folder (next to pom.xml)
-            String filePath = "ubuntu.torrent"; 
+            String filePath = "kali.torrent"; 
             if (!Files.exists(Paths.get(filePath))) {
                 System.err.println("Error: File not found: " + filePath);
                 return;
@@ -72,7 +77,8 @@ public class Main {
             System.out.println("My Peer ID:  " + new String(myPeerId, StandardCharsets.UTF_8));
 
             // Now we use the data we parsed to ask the Tracker for peers
-            
+            List<Peer> peers = null;
+
             if (announceUrl != null && infoHash != null) {
                 if (announceUrl.startsWith("http")) {
                     System.out.println("\n--- Connecting to Tracker ---");
@@ -82,7 +88,7 @@ public class Main {
                     byte[] response = trackerClient.requestPeers(announceUrl, infoHash, myPeerId, 6881);
                     
                     System.out.println("Tracker Response received. Parsing...");
-                    List<Peer> peers = trackerClient.parseResponse(response);
+                    peers = trackerClient.parseResponse(response);
                     
                     System.out.println("Found " + peers.size() + " peers:");
                     for (Peer p : peers) {
@@ -93,6 +99,66 @@ public class Main {
                     System.err.println("\nWARNING: This torrent uses a UDP tracker (" + announceUrl + ").");
                     System.err.println("This client currently only supports HTTP trackers.");
                 }
+            }
+            
+            // TCP Handshake
+            if (peers != null && !peers.isEmpty()) {
+                System.out.println("\n--- Starting Handshake Sequence ---");
+                System.out.println("We have " + peers.size() + " candidates.");
+
+                boolean connected = false;
+
+                for (Peer targetPeer : peers) {
+                    System.out.println("\nTrying Peer: " + targetPeer + "...");
+                    
+                    try (Socket socket = new Socket()) {
+                        // 1. Connect (Timeout 3 seconds to fail fast)
+                        socket.connect(new InetSocketAddress(targetPeer.getIp(), targetPeer.getPort()), 3000);
+                        System.out.println("  -> TCP Connection established!");
+
+                        OutputStream out = socket.getOutputStream();
+                        InputStream in = socket.getInputStream();
+
+                        // 2. Send Handshake
+                        byte[] handshakeMsg = Handshake.buildHandshake(infoHash, myPeerId);
+                        out.write(handshakeMsg);
+                        
+                        // 3. Read Response
+                        byte[] response = new byte[68];
+                        // We strictly expect 68 bytes
+                        int bytesRead = 0;
+                        while(bytesRead < 68) {
+                            int count = in.read(response, bytesRead, 68 - bytesRead);
+                            if(count == -1) break; // End of stream
+                            bytesRead += count;
+                        }
+
+                        if (bytesRead < 68) {
+                            System.err.println("  -> Failed: Peer closed connection early.");
+                        } else {
+                            // 4. Verify Response
+                            if (Handshake.verify(response, infoHash)) {
+                                System.out.println("  -> SUCCESS: Handshake verified!"); 
+                                System.out.println("  -> Peer ID: " + new String(Arrays.copyOfRange(response, 48, 68)));
+                                System.out.println("We found a friend! Stopping search.");
+                                connected = true;
+                                break; // Stop the loop, we found one!
+                            } else {
+                                System.err.println("  -> Error: Info Hash mismatch.");
+                            }
+                        }
+                    } catch (Exception e) {
+                        System.err.println("  -> Connection failed: " + e.getMessage());
+                    }
+                }
+                
+                if (!connected) {
+                    System.out.println("\n--- FAILURE: Could not connect to any peers. ---");
+                    System.out.println("Tip: Try a different .torrent file with more active seeds.");
+                }
+
+            } else {
+                System.out.println("No peers found to connect to.");
             }
 
         } catch (Exception e) {
