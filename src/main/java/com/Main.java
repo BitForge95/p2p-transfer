@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.io.DataInputStream;
 
 public class Main {
 
@@ -84,8 +85,7 @@ public class Main {
                     System.out.println("\n--- Connecting to Tracker ---");
                     
                     TrackerClient trackerClient = new TrackerClient();
-                    // Port 6881 is standard for BitTorrent
-                    // TODO : Shift the PORT from 6881 to 52347
+                    // Port 54321 is standard for BitTorrent
 
                     byte[] response = trackerClient.requestPeers(announceUrl, infoHash, myPeerId, 54321);
                     
@@ -140,10 +140,49 @@ public class Main {
                         } else {
                             // 4. Verify Response
                             if (Handshake.verify(response, infoHash)) {
-                                System.out.println("  -> SUCCESS: Handshake verified!"); 
-                                System.out.println("  -> Peer ID: " + new String(Arrays.copyOfRange(response, 48, 68)));
-                                connected = true;
-                                break; // Stop the loop, we found one!
+                                if (Handshake.verify(response, infoHash)) {
+                            System.out.println("  -> SUCCESS: Handshake verified!");
+        
+                            // We use DataInputStream because it helps read 4-byte integers easily
+                            DataInputStream dataIn = new DataInputStream(in);
+                            
+                            System.out.println("Listening for messages...");
+                            
+                            while (true) {
+                                // 1. Read Length (4 bytes)
+                                // If the peer closes connection, readInt() throws EOFException
+                                int length = dataIn.readInt();
+                                
+                                if (length == 0) {
+                                    // Keep-Alive message (0 length, no ID). Ignore it.
+                                    System.out.println("Received: Keep-Alive");
+                                    continue;
+                                }
+                                
+                                // 2. Read Message ID (1 byte)
+                                byte id = dataIn.readByte();
+                                
+                                // 3. Read Payload (Length - 1 bytes)
+                                byte[] payload = new byte[length - 1];
+                                if (length - 1 > 0) {
+                                    dataIn.readFully(payload); // Blocks until all bytes are read
+                                }
+                                
+                                Message msg = new Message(id, payload);
+                                System.out.println("Received: " + msg);
+                                
+                                // For now, just break after seeing a Bitfield or Have, 
+                                // so we don't get stuck in an infinite loop.
+                                if (id == 5 || id == 4) {
+                                    System.out.println("We see the peer has data!");
+                                    break;
+                                }
+                            }
+                            
+                            connected = true;
+                            break; // Break the outer "peer search" loop
+                        }
+                                 // Stop the loop, we found one!
                             } else {
                                 System.err.println("  -> Error: Info Hash mismatch.");
                             }
