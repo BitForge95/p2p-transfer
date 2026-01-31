@@ -85,7 +85,9 @@ public class Main {
                     
                     TrackerClient trackerClient = new TrackerClient();
                     // Port 6881 is standard for BitTorrent
-                    byte[] response = trackerClient.requestPeers(announceUrl, infoHash, myPeerId, 6881);
+                    // TODO : Shift the PORT from 6881 to 52347
+
+                    byte[] response = trackerClient.requestPeers(announceUrl, infoHash, myPeerId, 54321);
                     
                     System.out.println("Tracker Response received. Parsing...");
                     peers = trackerClient.parseResponse(response);
@@ -140,7 +142,6 @@ public class Main {
                             if (Handshake.verify(response, infoHash)) {
                                 System.out.println("  -> SUCCESS: Handshake verified!"); 
                                 System.out.println("  -> Peer ID: " + new String(Arrays.copyOfRange(response, 48, 68)));
-                                System.out.println("We found a friend! Stopping search.");
                                 connected = true;
                                 break; // Stop the loop, we found one!
                             } else {
@@ -154,7 +155,6 @@ public class Main {
                 
                 if (!connected) {
                     System.out.println("\n--- FAILURE: Could not connect to any peers. ---");
-                    System.out.println("Tip: Try a different .torrent file with more active seeds.");
                 }
 
             } else {
