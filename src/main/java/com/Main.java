@@ -23,7 +23,7 @@ public class Main {
             System.out.println("--- JTorrent: BitTorrent Client v1.0 ---");
 
             // 1. Read the .torrent file
-            // Make sure "ubuntu.torrent" is in your project root folder (next to pom.xml)
+            // Make sure "kali.torrent" is in your project root folder
             String filePath = "kali.torrent"; 
             if (!Files.exists(Paths.get(filePath))) {
                 System.err.println("Error: File not found: " + filePath);
@@ -86,7 +86,6 @@ public class Main {
                     
                     TrackerClient trackerClient = new TrackerClient();
                     // Port 54321 is standard for BitTorrent
-
                     byte[] response = trackerClient.requestPeers(announceUrl, infoHash, myPeerId, 54321);
                     
                     System.out.println("Tracker Response received. Parsing...");
@@ -103,7 +102,7 @@ public class Main {
                 }
             }
             
-            // TCP Handshake
+            // TCP Handshake & Message Loop
             if (peers != null && !peers.isEmpty()) {
                 System.out.println("\n--- Starting Handshake Sequence ---");
                 System.out.println("We have " + peers.size() + " candidates.");
@@ -127,7 +126,6 @@ public class Main {
                         
                         // 3. Read Response
                         byte[] response = new byte[68];
-                        // We strictly expect 68 bytes
                         int bytesRead = 0;
                         while(bytesRead < 68) {
                             int count = in.read(response, bytesRead, 68 - bytesRead);
@@ -140,49 +138,54 @@ public class Main {
                         } else {
                             // 4. Verify Response
                             if (Handshake.verify(response, infoHash)) {
-                                if (Handshake.verify(response, infoHash)) {
-                            System.out.println("  -> SUCCESS: Handshake verified!");
-        
-                            // We use DataInputStream because it helps read 4-byte integers easily
-                            DataInputStream dataIn = new DataInputStream(in);
-                            
-                            System.out.println("Listening for messages...");
-                            
-                            while (true) {
-                                // 1. Read Length (4 bytes)
-                                // If the peer closes connection, readInt() throws EOFException
-                                int length = dataIn.readInt();
+                                System.out.println("  -> SUCCESS: Handshake verified!");
+            
+                                // We use DataInputStream because it helps read 4-byte integers easily
+                                DataInputStream dataIn = new DataInputStream(in);
                                 
-                                if (length == 0) {
-                                    // Keep-Alive message (0 length, no ID). Ignore it.
-                                    System.out.println("Received: Keep-Alive");
-                                    continue;
+                                // A. Send INTERESTED (ID = 2)
+                                // We must tell the peer we want data, otherwise they will never unchoke us.
+                                // (Ensure Message.build is implemented as per Commit 17)
+                                out.write(Message.build(2));
+                                System.out.println("  -> Sent: INTERESTED");
+
+                                boolean isChoked = true;
+                                System.out.println("Listening for messages...");
+                                
+                                while (true) {
+                                    // 1. Read Length (4 bytes)
+                                    int length = dataIn.readInt();
+                                    
+                                    if (length == 0) {
+                                        // Keep-Alive message
+                                        continue;
+                                    }
+                                    
+                                    // 2. Read Message ID (1 byte)
+                                    byte id = dataIn.readByte();
+                                    
+                                    // 3. Read Payload
+                                    byte[] payload = new byte[length - 1];
+                                    if (length - 1 > 0) {
+                                        dataIn.readFully(payload); 
+                                    }
+                                    
+                                    Message msg = new Message(id, payload);
+                                    System.out.println("Received: " + msg);
+                                    
+                                    if (id == 0) {
+                                        System.out.println("     [State] We are CHOKED. Cannot request data.");
+                                        isChoked = true;
+                                    } else if (id == 1) {
+                                        System.out.println("     [State] We are UNCHOKED!");
+                                        isChoked = false;
+                                        System.out.println("     Day 8 Complete: We have permission to download.");
+                                        connected = true;
+                                        break; // Success! Break the message loop.
+                                    }
                                 }
                                 
-                                // 2. Read Message ID (1 byte)
-                                byte id = dataIn.readByte();
-                                
-                                // 3. Read Payload (Length - 1 bytes)
-                                byte[] payload = new byte[length - 1];
-                                if (length - 1 > 0) {
-                                    dataIn.readFully(payload); // Blocks until all bytes are read
-                                }
-                                
-                                Message msg = new Message(id, payload);
-                                System.out.println("Received: " + msg);
-                                
-                                // For now, just break after seeing a Bitfield or Have, 
-                                // so we don't get stuck in an infinite loop.
-                                if (id == 5 || id == 4) {
-                                    System.out.println("We see the peer has data!");
-                                    break;
-                                }
-                            }
-                            
-                            connected = true;
-                            break; // Break the outer "peer search" loop
-                        }
-                                 // Stop the loop, we found one!
+                                if (connected) break; // Break the peer loop
                             } else {
                                 System.err.println("  -> Error: Info Hash mismatch.");
                             }
