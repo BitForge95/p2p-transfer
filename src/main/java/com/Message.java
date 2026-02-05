@@ -31,4 +31,18 @@ public class Message {
         return "Message: " + name + " [" + (payload.length + 1) + " bytes]";
     }
 
+    public static byte[] build(int id) {
+        // Length (4 bytes) + ID (1 byte) = 5 bytes total
+        // But length field itself is 1 (just the ID byte)
+        byte[] msg = new byte[5];
+        
+        // Length = 1 (0x00 0x00 0x00 0x01)
+        msg[3] = 1;
+        
+        // ID
+        msg[4] = (byte) id;
+        
+        return msg;
+    }
+
 }

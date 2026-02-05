@@ -4,6 +4,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -23,7 +24,6 @@ public class Main {
             System.out.println("--- JTorrent: BitTorrent Client v1.0 ---");
 
             // 1. Read the .torrent file
-            // Make sure "kali.torrent" is in your project root folder
             String filePath = "kali.torrent"; 
             if (!Files.exists(Paths.get(filePath))) {
                 System.err.println("Error: File not found: " + filePath);
@@ -49,8 +49,12 @@ public class Main {
                 System.out.println("Tracker URL: " + announceUrl);
             }
 
-            // 4. Print File Info
+            // 4. Print File Info & Calculate Total Pieces (Day 9 Requirement)
             byte[] infoHash = null; // Store for Day 4 usage
+            long fileLength = 0;
+            long pieceLength = 0;
+            int numPieces = 0;
+
             if (torrentData.containsKey("info")) {
                 Map<String, Object> info = (Map<String, Object>) torrentData.get("info");
                 
@@ -62,7 +66,19 @@ public class Main {
                 }
                 
                 if (info.containsKey("length")) {
-                    System.out.println("File Size:   " + info.get("length") + " bytes");
+                    fileLength = (long) info.get("length");
+                    System.out.println("File Size:   " + fileLength + " bytes");
+                }
+                
+                if (info.containsKey("piece length")) {
+                    pieceLength = (long) info.get("piece length");
+                    System.out.println("Piece Length: " + pieceLength + " bytes");
+                }
+
+                // Calculate Total Pieces: ceil(Total Size / Piece Size)
+                if (pieceLength > 0) {
+                    numPieces = (int) Math.ceil((double) fileLength / pieceLength);
+                    System.out.println("Total Pieces: " + numPieces);
                 }
 
                 // 5. Calculate Info Hash
@@ -113,8 +129,9 @@ public class Main {
                     System.out.println("\nTrying Peer: " + targetPeer + "...");
                     
                     try (Socket socket = new Socket()) {
-                        // 1. Connect (Timeout 3 seconds to fail fast)
-                        socket.connect(new InetSocketAddress(targetPeer.getIp(), targetPeer.getPort()), 3000);
+                        // 1. Connect (Timeout 10 seconds)
+                        // Increased the Timeout from 3 seconds to 10 seconds to let the peers connect
+                        socket.connect(new InetSocketAddress(targetPeer.getIp(), targetPeer.getPort()), 10000);
                         System.out.println("  -> TCP Connection established!");
 
                         OutputStream out = socket.getOutputStream();
@@ -143,6 +160,8 @@ public class Main {
                                 // We use DataInputStream because it helps read 4-byte integers easily
                                 DataInputStream dataIn = new DataInputStream(in);
                                 
+                                Bitfield peerBitfield = new Bitfield(numPieces);
+
                                 // A. Send INTERESTED (ID = 2)
                                 // We must tell the peer we want data, otherwise they will never unchoke us.
                                 // (Ensure Message.build is implemented as per Commit 17)
@@ -167,21 +186,41 @@ public class Main {
                                     // 3. Read Payload
                                     byte[] payload = new byte[length - 1];
                                     if (length - 1 > 0) {
-                                        dataIn.readFully(payload); 
+                                        dataIn.readFully(payload);
                                     }
                                     
                                     Message msg = new Message(id, payload);
-                                    System.out.println("Received: " + msg);
+                                    // System.out.println("Received: " + msg); // Optional log
                                     
-                                    if (id == 0) {
+                                    // Mapping the pieces in the Bitfield
+                                    if (id == 5) { // BITFIELD
+                                        peerBitfield.overrideFromBytes(payload);
+                                        System.out.println("     [Map Update] Received Bitfield. Peer has " + 
+                                            peerBitfield.count() + "/" + numPieces + " pieces.");
+                                    } 
+                                    else if (id == 4) { // HAVE
+                                        int pieceIndex = ByteBuffer.wrap(payload).getInt();
+                                        peerBitfield.setPiece(pieceIndex);
+                                        // Only print every 100th piece to avoid console spam
+                                        if(pieceIndex % 100 == 0) System.out.println("     [Map Update] Peer just got Piece #" + pieceIndex);
+                                    }
+                                    else if (id == 0) {
                                         System.out.println("     [State] We are CHOKED. Cannot request data.");
                                         isChoked = true;
-                                    } else if (id == 1) {
+                                    } 
+                                    else if (id == 1) { // UNCHOKE
                                         System.out.println("     [State] We are UNCHOKED!");
                                         isChoked = false;
-                                        System.out.println("     Day 8 Complete: We have permission to download.");
-                                        connected = true;
-                                        break; // Success! Break the message loop.
+                                        
+                                        // We are unchoked AND we know the peer actually has data
+                                        if (peerBitfield.count() > 0) {
+                                            System.out.println("     Day 9 Complete: Peer has " + 
+                                                peerBitfield.count() + " pieces and is ready to share!");
+                                            connected = true;
+                                            break; // Success! Break the message loop.
+                                        } else {
+                                            System.out.println("     Warning: Peer is unchoked but we haven't received a Bitfield yet.");
+                                        }
                                     }
                                 }
                                 
