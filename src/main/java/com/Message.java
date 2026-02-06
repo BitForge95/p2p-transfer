@@ -1,5 +1,7 @@
 package com;
 
+import java.nio.ByteBuffer;
+
 public class Message {
     // To communicate with the peer , after the handshake to recive the packets 
     public final int id;
@@ -44,5 +46,25 @@ public class Message {
         
         return msg;
     }
+
+    // SOurce : Stackover Flow
+    // Author : Online 
+    // Date : 06/02/2026
+    public static byte[] buildRequest(int index, int begin, int length) {
+        // Total message length = 13 bytes
+        // 1 byte ID + 4 bytes Index + 4 bytes Begin + 4 bytes Length
+        
+        ByteBuffer buffer = ByteBuffer.allocate(17); // 4 bytes for Length prefix + 13 bytes payload
+        
+        buffer.putInt(13);      // Length Prefix
+        buffer.put((byte) 6);   // ID for REQUEST ( ID : 6 is to ask for a block )
+        buffer.putInt(index);   // Piece Index
+        buffer.putInt(begin);   // Offset
+        buffer.putInt(length);  // Block Size
+        
+        return buffer.array();
+    }
+
+    
 
 }

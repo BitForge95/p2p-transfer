@@ -130,7 +130,6 @@ public class Main {
                     
                     try (Socket socket = new Socket()) {
                         // 1. Connect (Timeout 10 seconds)
-                        // Increased the Timeout from 3 seconds to 10 seconds to let the peers connect
                         socket.connect(new InetSocketAddress(targetPeer.getIp(), targetPeer.getPort()), 10000);
                         System.out.println("  -> TCP Connection established!");
 
@@ -212,14 +211,34 @@ public class Main {
                                         System.out.println("     [State] We are UNCHOKED!");
                                         isChoked = false;
                                         
-                                        // We are unchoked AND we know the peer actually has data
-                                        if (peerBitfield.count() > 0) {
-                                            System.out.println("     Day 9 Complete: Peer has " + 
-                                                peerBitfield.count() + " pieces and is ready to share!");
+                                        // --- DAY 10: REQUEST STRATEGY ---
+                                        int targetPieceIndex = -1;
+                                        for (int i = 0; i < numPieces; i++) {
+                                            if (peerBitfield.hasPiece(i)) {
+                                                targetPieceIndex = i;
+                                                break; // Grab the first available piece
+                                            }
+                                        }
+                                        
+                                        if (targetPieceIndex != -1) {
+                                            System.out.println("     [Strategy] Peer has Piece #" + targetPieceIndex + ". Requesting Block 0...");
+                                            
+                                            // Request Piece X, Offset 0, Size 16384 bytes (16KB)
+                                            int blockSize = 16384;
+                                            byte[] requestMsg = Message.buildRequest(targetPieceIndex, 0, blockSize);
+                                            
+                                            out.write(requestMsg);
+                                            System.out.println("  -> Sent: REQUEST (Piece: " + targetPieceIndex + ", Offset: 0, Length: " + blockSize + ")");
+                                            
                                             connected = true;
-                                            break; // Success! Break the message loop.
+                                            
+                                            // *** FIX FOR UNREACHABLE CODE ERROR ***
+                                            // We break the loop now because we successfully sent the request.
+                                            // In Day 11, we will remove this break to listen for the answer.
+                                            break;
+                                            
                                         } else {
-                                            System.out.println("     Warning: Peer is unchoked but we haven't received a Bitfield yet.");
+                                            System.out.println("     Warning: Peer has no pieces we can download.");
                                         }
                                     }
                                 }
@@ -249,32 +268,21 @@ public class Main {
     }
 
     //  Calculates the SHA-1 hash of the "info" dictionary.
-    //  This requires the BencodeEncoder to be implemented correctly!
-
     private static byte[] calculateInfoHash(Map<String, Object> torrentData) throws Exception {
-        // Extract the 'info' dictionary map
         Map<String, Object> infoMap = (Map<String, Object>) torrentData.get("info");
-        
-        // Re-encode it back to raw bytes using the Encoder we built in Commit 7
         BencodeEncoder encoder = new BencodeEncoder();
         byte[] infoBytes = encoder.encode(infoMap);
-        
-        // Compute SHA-1
         MessageDigest digest = MessageDigest.getInstance("SHA-1");
         return digest.digest(infoBytes);
     }
       
     // Generates a random 20-byte Peer ID.
-    // Format: -JT1000- followed by 12 random numbers.
-     
     private static byte[] generatePeerId() {
         byte[] peerId = new byte[20];
         
         // Prefix: -JT1000-
         byte[] prefix = "-JT1000-".getBytes(StandardCharsets.UTF_8);
         System.arraycopy(prefix, 0, peerId, 0, prefix.length);
-        
-        // Random numbers for the rest
         Random random = new Random();
         for (int i = prefix.length; i < 20; i++) {
             peerId[i] = (byte) (random.nextInt(10) + '0'); 
@@ -282,8 +290,7 @@ public class Main {
         return peerId;
     }
 
-    // Helper to convert raw bytes to a Hex String (e.g., [10, 15] -> "0a0f")
-     
+    // Helper to convert raw bytes to a Hex String
     private static String bytesToHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {

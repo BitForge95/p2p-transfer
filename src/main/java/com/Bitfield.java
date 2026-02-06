@@ -43,6 +43,11 @@ public class Bitfield {
         }
     }
 
+    // Checks if the peer possesses a specific piece so we can decide to request it
+    public boolean hasPiece(int index) {
+        return index >= 0 && index < pieces.length && pieces[index];
+    }
+
     // How many pieces does this peer have?
     public int count() {
         int count = 0;
