@@ -4,6 +4,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.FileOutputStream; 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -38,7 +39,7 @@ public class Main {
 
             System.out.println("\n--- Metadata Parsed ---");
             
-            // 3. Print Tracker URL (Announce) and store it for Day 4
+            // 3. Print Tracker URL (Announce)
             String announceUrl = null;
             if (torrentData.containsKey("announce")) {
                 // Some torrents use byte[] for strings, so we cast to byte[] then new String()
@@ -49,11 +50,12 @@ public class Main {
                 System.out.println("Tracker URL: " + announceUrl);
             }
 
-            // 4. Print File Info & Calculate Total Pieces (Day 9 Requirement)
-            byte[] infoHash = null; // Store for Day 4 usage
+            // 4. Print File Info & Calculate Total Pieces
+            byte[] infoHash = null; // Store for tracker request usage
             long fileLength = 0;
             long pieceLength = 0;
             int numPieces = 0;
+            byte[] piecesHashes = null;
 
             if (torrentData.containsKey("info")) {
                 Map<String, Object> info = (Map<String, Object>) torrentData.get("info");
@@ -75,6 +77,15 @@ public class Main {
                     System.out.println("Piece Length: " + pieceLength + " bytes");
                 }
 
+                if (info.containsKey("pieces")) {
+                    Object pObj = info.get("pieces");
+                    if (pObj instanceof byte[]) {
+                        piecesHashes = (byte[]) pObj;
+                    } else if (pObj instanceof String) {
+                        piecesHashes = ((String) pObj).getBytes(StandardCharsets.ISO_8859_1); // Bencode strings
+                    }
+                }
+
                 // Calculate Total Pieces: ceil(Total Size / Piece Size)
                 if (pieceLength > 0) {
                     numPieces = (int) Math.ceil((double) fileLength / pieceLength);
@@ -86,7 +97,7 @@ public class Main {
                 infoHash = calculateInfoHash(torrentData);
                 String hexHash = bytesToHex(infoHash);
                 System.out.println("Info Hash:   " + hexHash);
-                // Sucessfully calculated INfo Hash , verified from ubuntu website 
+                // Sucessfully calculated Info Hash , verified from ubuntu website 
             }
 
             // 6. Generate Peer ID
@@ -123,14 +134,17 @@ public class Main {
                 System.out.println("\n--- Starting Handshake Sequence ---");
                 System.out.println("We have " + peers.size() + " candidates.");
 
-                boolean connected = false;
+                boolean completelyFinished = false;
 
                 for (Peer targetPeer : peers) {
+                    if (completelyFinished) {
+                        break;
+                    }
+
                     System.out.println("\nTrying Peer: " + targetPeer + "...");
                     
                     try (Socket socket = new Socket()) {
                         // 1. Connect (Timeout 10 seconds)
-                        // Increased the Timeout from 3 seconds to 10 seconds to let the peers connect
                         socket.connect(new InetSocketAddress(targetPeer.getIp(), targetPeer.getPort()), 10000);
                         System.out.println("  -> TCP Connection established!");
 
@@ -161,14 +175,18 @@ public class Main {
                                 DataInputStream dataIn = new DataInputStream(in);
                                 
                                 Bitfield peerBitfield = new Bitfield(numPieces);
+                                
+                                // --- STATE VARIABLES FOR DOWNLOADING ---
+                                int targetPieceIndex = -1;
+                                int downloadedBytes = 0;
+                                byte[] pieceBuffer = new byte[(int) pieceLength]; // Holds the full assembled piece
+                                boolean isRequesting = false; // Guardrail against duplicate UNCHOKEs
+                                // -----------------------------------------------
 
                                 // A. Send INTERESTED (ID = 2)
-                                // We must tell the peer we want data, otherwise they will never unchoke us.
-                                // (Ensure Message.build is implemented as per Commit 17)
                                 out.write(Message.build(2));
                                 System.out.println("  -> Sent: INTERESTED");
 
-                                boolean isChoked = true;
                                 System.out.println("Listening for messages...");
                                 
                                 while (true) {
@@ -189,9 +207,6 @@ public class Main {
                                         dataIn.readFully(payload);
                                     }
                                     
-                                    Message msg = new Message(id, payload);
-                                    // System.out.println("Received: " + msg); // Optional log
-                                    
                                     // Mapping the pieces in the Bitfield
                                     if (id == 5) { // BITFIELD
                                         peerBitfield.overrideFromBytes(payload);
@@ -206,37 +221,31 @@ public class Main {
                                     }
                                     else if (id == 0) {
                                         System.out.println("     [State] We are CHOKED. Cannot request data.");
-                                        isChoked = true;
                                     } 
                                     else if (id == 1) { // UNCHOKE
                                         System.out.println("     [State] We are UNCHOKED!");
-                                        isChoked = false;
                                         
-                                        int targetPieceIndex = -1;
-                                        for (int i = 0; i < numPieces; i++) {
-                                            if (peerBitfield.hasPiece(i)) {
-                                                targetPieceIndex = i;
-                                                break; // Grab the first available piece
+                                        // If we haven't picked a piece yet, find one
+                                        if (targetPieceIndex == -1) {
+                                            for (int i = 0; i < numPieces; i++) {
+                                                if (peerBitfield.hasPiece(i)) {
+                                                    targetPieceIndex = i;
+                                                    break; // Grab the first available piece
+                                                }
                                             }
                                         }
                                         
-                                        if (targetPieceIndex != -1) {
-                                            System.out.println("     [Strategy] Peer has Piece #" + targetPieceIndex + ". Requesting Block 0...");
+                                        if (targetPieceIndex != -1 && !isRequesting) {
+                                            System.out.println("     [Strategy] Starting download for Piece #" + targetPieceIndex + "...");
                                             
-                                            // Request Piece X, Offset 0, Size 16384 bytes (16KB)
-                                            int blockSize = 16384;
-                                            byte[] requestMsg = Message.buildRequest(targetPieceIndex, 0, blockSize);
+                                            // Request the FIRST block. Max block size is usually 16KB (16384 bytes)
+                                            int blockSize = Math.min(16384, (int)pieceLength - downloadedBytes);
+                                            byte[] requestMsg = Message.buildRequest(targetPieceIndex, downloadedBytes, blockSize);
                                             
                                             out.write(requestMsg);
-                                            System.out.println("  -> Sent: REQUEST (Piece: " + targetPieceIndex + ", Offset: 0, Length: " + blockSize + ")");
+                                            isRequesting = true;
                                             
-                                            connected = true;
-                                            
-                                            // *** DAY 11: REMOVED THE BREAK ***
-                                            // We removed the break from Day 10 here so the loop keeps running 
-                                            // and can catch the PIECE message (ID 7) coming back from the peer!
-                                            
-                                        } else {
+                                        } else if (targetPieceIndex == -1) {
                                             System.out.println("     Warning: Peer has no pieces we can download.");
                                         }
                                     }
@@ -247,21 +256,67 @@ public class Main {
                                         int pIndex = blockBuffer.getInt();
                                         int pBegin = blockBuffer.getInt();
                                         
+                                        // --- GUARDRAIL: Check for out-of-order blocks ---
+                                        if (pIndex != targetPieceIndex || pBegin != downloadedBytes) {
+                                            System.out.println("     [Warning] Ignored out-of-order block.");
+                                            continue; 
+                                        }
+                                        
                                         // The rest is the actual file data
                                         byte[] data = new byte[payload.length - 8];
                                         blockBuffer.get(data);
                                         
-                                        System.out.println(String.format("  -> RECEIVED PIECE: %d (Offset: %d) | Size: %d bytes", 
-                                            pIndex, pBegin, data.length));
-                                            
-                                        System.out.println("Day 11 Complete: We successfully downloaded actual file data!");
+                                        // Assemble the piece
+                                        // Copy the incoming block into our large pieceBuffer
+                                        System.arraycopy(data, 0, pieceBuffer, pBegin, data.length);
+                                        downloadedBytes += data.length;
                                         
-                                        // We got our block, now we can safely break the loop
-                                        break; 
+                                        // Print progress
+                                        System.out.println(String.format("  -> Download Progress: %d / %d bytes (%.1f%%)", 
+                                            downloadedBytes, pieceLength, ((double)downloadedBytes/pieceLength)*100));
+                                            
+                                        // Check if the piece is fully downloaded
+                                        if (downloadedBytes < pieceLength) {
+                                            // Request the NEXT block
+                                            int nextBlockSize = Math.min(16384, (int)pieceLength - downloadedBytes);
+                                            byte[] requestMsg = Message.buildRequest(targetPieceIndex, downloadedBytes, nextBlockSize);
+                                            out.write(requestMsg);
+                                        } else {
+                                            // SUCCESS! The piece is completely assembled.
+                                            System.out.println("\n  -> SUCCESS: Piece #" + targetPieceIndex + " completely downloaded!");
+                                            
+                                            // --- VERIFY THE PIECE HASH ---
+                                            System.out.println("     [Verification] Calculating SHA-1 hash of downloaded data...");
+                                            MessageDigest pieceDigest = MessageDigest.getInstance("SHA-1");
+                                            byte[] calculatedHash = pieceDigest.digest(pieceBuffer);
+                                            
+                                            // Extract the expected 20-byte hash from the torrent metadata
+                                            int hashOffset = targetPieceIndex * 20;
+                                            byte[] expectedHash = Arrays.copyOfRange(piecesHashes, hashOffset, hashOffset + 20);
+                                            
+                                            if (Arrays.equals(calculatedHash, expectedHash)) {
+                                                System.out.println("  -> [Verification] PASSED! Hash matches perfectly.");
+                                                
+                                                // Save to disk ONLY if it passes
+                                                String fileName = "downloaded_piece_" + targetPieceIndex + ".dat";
+                                                try (FileOutputStream fos = new FileOutputStream(fileName)) {
+                                                    fos.write(pieceBuffer);
+                                                }
+                                                System.out.println("  -> Saved verified data to disk as: " + fileName);
+                                                completelyFinished = true; // Mark process as totally complete
+                                                break; // Break the message loop
+                                                
+                                            } else {
+                                                System.err.println("  -> [Verification] FAILED! Hash mismatch. Malicious or corrupted data.");
+                                                System.out.println("     Expected: " + bytesToHex(expectedHash));
+                                                System.out.println("     Got:      " + bytesToHex(calculatedHash));
+                                                System.out.println("     Dropping malicious peer and trying the next one...");
+                                                break; // Break message loop, completelyFinished remains false to try next peer
+                                            }
+                                        }
                                     }
                                 }
                                 
-                                if (connected) break; // Break the peer loop
                             } else {
                                 System.err.println("  -> Error: Info Hash mismatch.");
                             }
@@ -271,8 +326,10 @@ public class Main {
                     }
                 }
                 
-                if (!connected) {
-                    System.out.println("\n--- FAILURE: Could not connect to any peers. ---");
+                if (completelyFinished) {
+                    System.out.println("\n*** BITTORRENT CLIENT SUCCESS ***");
+                } else {
+                    System.out.println("\n--- FAILURE: Ran out of peers or could not verify any data. ---");
                 }
 
             } else {
