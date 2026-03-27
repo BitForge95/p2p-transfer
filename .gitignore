@@ -12,3 +12,4 @@ ubuntu.torrent
 
 # Compiled classes
 *.class
+*.dat
