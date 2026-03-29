@@ -21,14 +21,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class Main {
-
-    // --- GLOBAL SHARED STATE FOR MULTITHREADING ---
     static boolean[] completedPieces;
     static boolean[] requestedPieces;
     static int totalCompletedPieces = 0;
     static int numPieces = 0;
     static final Object STATE_LOCK = new Object();
-    // ----------------------------------------------
 
     public static void main(String[] args) {
         try {
@@ -107,7 +104,6 @@ public class Main {
                 return;
             }
 
-            // Limit to 20 concurrent connections to avoid overwhelming the local network
             int threadCount = Math.min(20, peers.size());
             ExecutorService executor = Executors.newFixedThreadPool(threadCount);
 
@@ -117,11 +113,10 @@ public class Main {
                 executor.submit(new PeerWorker(targetPeer, infoHash, myPeerId, pieceLength, fileLength, piecesHashes));
             }
 
-            executor.shutdown(); // Stop accepting new tasks
+            executor.shutdown();
 
-            // Main thread monitors progress
             while (totalCompletedPieces < numPieces) {
-                Thread.sleep(3000); // Check every 3 seconds
+                Thread.sleep(3000);
                 
                 synchronized (STATE_LOCK) {
                     System.out.println(String.format("[MAIN] Global Progress: %d / %d pieces (%.1f%%)", 
@@ -145,7 +140,6 @@ public class Main {
         }
     }
 
-    // --- WORKER THREAD LOGIC ---
     static class PeerWorker implements Runnable {
         Peer peer;
         byte[] infoHash;
@@ -214,7 +208,7 @@ public class Main {
                     else if (id == 4) { 
                         peerBitfield.setPiece(ByteBuffer.wrap(payload).getInt());
                     }
-                    else if (id == 1) { // UNCHOKE
+                    else if (id == 1) {
                         targetPieceIndex = -1;
                         
                         synchronized (STATE_LOCK) {
@@ -238,7 +232,7 @@ public class Main {
                             isRequesting = true;
                         }
                     }
-                    else if (id == 7 && isRequesting) { // PIECE
+                    else if (id == 7 && isRequesting) {
                         ByteBuffer blockBuffer = ByteBuffer.wrap(payload);
                         int pIndex = blockBuffer.getInt();
                         int pBegin = blockBuffer.getInt();
@@ -280,7 +274,6 @@ public class Main {
                             isRequesting = false;
                             targetPieceIndex = -1;
                             
-                            // Immediately look for the next piece
                             synchronized (STATE_LOCK) {
                                 for (int i = 0; i < numPieces; i++) {
                                     if (!completedPieces[i] && !requestedPieces[i] && peerBitfield.hasPiece(i)) {
@@ -301,14 +294,12 @@ public class Main {
                                 out.write(Message.buildRequest(targetPieceIndex, downloadedBytes, blockSize));
                                 isRequesting = true;
                             } else {
-                                // No more pieces this peer has that we need, stay idle or drop connection
                                 break;
                             }
                         }
                     }
                 }
             } catch (Exception e) {
-                // If the connection drops or an error occurs, unclaim the piece so another thread can grab it
                 if (targetPieceIndex != -1) {
                     synchronized (STATE_LOCK) {
                         if (!completedPieces[targetPieceIndex]) {
@@ -320,7 +311,6 @@ public class Main {
         }
     }
 
-    // --- THE STITCHER ---
     private static void stitchFiles(int totalPieces, String outputFileName) {
         System.out.println("Assembling " + totalPieces + " pieces into " + outputFileName + "...");
         try (FileOutputStream fos = new FileOutputStream(outputFileName)) {
@@ -329,7 +319,7 @@ public class Main {
                 File chunkFile = new File("downloaded_piece_" + i + ".dat");
                 if (chunkFile.exists()) {
                     try (FileInputStream fis = new FileInputStream(chunkFile)) {
-                        byte[] buffer = new byte[1024 * 1024]; // 1MB buffer
+                        byte[] buffer = new byte[1024 * 1024];
                         int bytesRead;
                         while ((bytesRead = fis.read(buffer)) != -1) {
                             fos.write(buffer, 0, bytesRead);
@@ -349,7 +339,6 @@ public class Main {
         }
     }
 
-    // --- HELPER METHODS ---
     private static byte[] calculateInfoHash(Map<String, Object> torrentData) throws Exception {
         Map<String, Object> infoMap = (Map<String, Object>) torrentData.get("info");
         BencodeEncoder encoder = new BencodeEncoder();

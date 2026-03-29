@@ -7,8 +7,6 @@ import java.util.Map;
 import java.util.TreeMap;
 
 public class BencodeParser {
-    // Placeholder for now
-
     private final byte[] data;
     private int index;
 
@@ -17,7 +15,7 @@ public class BencodeParser {
         this.index = 0;
     }
 
-    // Main Function
+    // Decodes the next bencoded value at the current index.
     public Object decode() {
         if (index >= data.length) {
             return null;
@@ -82,25 +80,22 @@ public class BencodeParser {
     }
 
     private List<Object> decodeList() {
-        index++; // skip 'l'
+        index++;
 
         List<Object> list = new ArrayList<>();
 
         while (data[index] != 'e') {
-            list.add(decode()); //REcurrsivly called decode function to decode either Intergers or Strings for now
+            list.add(decode());
         }
 
-        index++; // skip 'e'
+        index++;
         return list;
     }
 
     private Map<String, Object> decodeDictionary() {
-        //The dictionary in bencoding is in the format d<key><value><key><value>e
-        //Here our task is to store them and use for further tracking
-        index++; //Skipping the letter 'd'
+        index++;
 
-        Map<String, Object> map = new TreeMap<>(); //Using treemap() cause it sorts the keys
-        //Bencode dictionaries are usually lexicographically sorted
+        Map<String, Object> map = new TreeMap<>();
 
         while(data[index] != 'e') {
             String key = new String(decodeString());
