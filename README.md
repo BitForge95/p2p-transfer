@@ -1,4 +1,4 @@
-# JTorrent: Java BitTorrent Client
+# JTorrent: Multi-Threaded BitTorrent Client
 
 A lightweight, multi-threaded implementation of a BitTorrent client written entirely from scratch in Java.
 
