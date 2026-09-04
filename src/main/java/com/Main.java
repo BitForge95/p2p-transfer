@@ -31,7 +31,14 @@ public class Main {
         try {
             System.out.println("--- JTorrent: BitTorrent Client v1.0 (Multi-threaded) ---");
 
-            String filePath = "kali.torrent"; 
+            if (args.length == 0) {
+                System.err.println("Error: No torrent file specified.");
+                System.out.println("Usage: java -jar JTorrent.jar <path_to_torrent_file>");
+                return;
+            }
+
+            String filePath = args[0]; 
+            
             if (!Files.exists(Paths.get(filePath))) {
                 System.err.println("Error: File not found: " + filePath);
                 return;
