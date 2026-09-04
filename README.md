@@ -51,6 +51,14 @@ This project was developed to demonstrate a deep understanding of low-level netw
 
 ## Getting Started
 
+## 🚀 Quick Start (No Compilation Required)
+
+You can run JTorrent directly without compiling the source code:
+1. Download the latest `JTorrent.jar` file from the [Releases tab](https://github.com/BitForge95/p2p-transfer/releases).
+2. Open your terminal and run it with any `.torrent` file:
+   ```bash
+   java -jar JTorrent.jar <path_to_your_torrent_file>
+
 ### Prerequisites
 
 - Java Development Kit (JDK) installed and configured in your system path  
